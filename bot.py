@@ -3,7 +3,7 @@ import random
 import os
 
 # Replace this with your real token
-TOKEN = os.environ.get("7224316622:AAEhVGroHMqp-7B1cFdYwQFLHXWFm4tC_M8")
+TOKEN = os.environ.get("BOT_TOKEN", "7224316622:AAEhVGroHMqp-7B1cFdYwQFLHXWFm4tC_M8")
 
 bot = telebot.TeleBot(TOKEN)
 
