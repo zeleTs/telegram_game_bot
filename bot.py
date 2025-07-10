@@ -35,10 +35,13 @@ games = {}  # key = chat_id, value = Game object
 # Define the Game class to manage player turns, rolls, and positions
 class Game:
     def __init__(self):
+        
         self.players = []         # List of players as tuples: (user_id, username)
         self.positions = {}       # Tracks position of each player: user_id → position
         self.turn = 0             # Index of current player in self.players
         self.started = False      # Indicates if the game has started
+        self.sixes_in_a_row = {}   # Tracks how many 6s a player has rolled in a row
+        self.skip_turn = set()     # Players who should skip their next turn
         self.finished = False     # True if someone won
 
     def add_player(self, user_id, username):
@@ -48,6 +51,7 @@ class Game:
             return False, "🧑 You're already in the game!"
         self.players.append((user_id, username))
         self.positions[user_id] = 0  # Start position
+        self.sixes_in_a_row[user_id] = 0
         return True, f"✅ {username} joined the game."
 
     def start_game(self):
@@ -57,26 +61,65 @@ class Game:
         return True, f"🎲 Game started with {len(self.players)} players!\nIt's {self.players[0][1]}'s turn. Type /roll"
 
     def roll_dice(self, user_id):
-        if self.finished:
-            return "🏁 Game is already over."
-        if self.players[self.turn][0] != user_id:
-            return "⏳ Not your turn."
+    if self.finished:
+        return "🏁 Game is already over."
 
-        roll = random.randint(1, 6)
-        self.positions[user_id] += roll
+    if self.players[self.turn][0] != user_id:
+        return "⏳ Not your turn."
 
-        player_name = self.players[self.turn][1]  # Get current player's name
-        status = f"🎲 {player_name} rolled a {roll}! Now at position {self.positions[user_id]}."
-
-        # Check if player won
-        if self.positions[user_id] >= 30:
-            self.finished = True
-            return status + f"\n🏆 {self.players[self.turn][1]} wins the game!"
-        
-        # Move to next player
+    # Rule 2: Skip turn if player is flagged
+    if user_id in self.skip_turn:
+        self.skip_turn.remove(user_id)
+        self.sixes_in_a_row[user_id] = 0
         self.turn = (self.turn + 1) % len(self.players)
         next_player = self.players[self.turn][1]
-        return status + f"\n➡️ Now it's {next_player}'s turn."
+        return f"⛔ You must skip this turn.\n➡️ Now it's {next_player}'s turn."
+
+    # Roll the dice
+    roll = random.randint(1, 6)
+    name = self.players[self.turn][1]
+
+    status = f"🎲 {name} rolled a {roll}!"
+
+    # Rule 3: Roll a 1 = move back 1 step
+    if roll == 1:
+        self.positions[user_id] = max(0, self.positions[user_id] - 1)
+        status += f" 😬 Bad luck! Move back 1 step to {self.positions[user_id]}."
+
+    else:
+        self.positions[user_id] += roll
+        status += f" Now at position {self.positions[user_id]}."
+
+    # Rule 4: If two players have same position, previous player goes to 0
+    for other_id, pos in self.positions.items():
+        if other_id != user_id and self.positions[user_id] == pos:
+            other_name = [p[1] for p in self.players if p[0] == other_id][0]
+            self.positions[other_id] = 0
+            status += f"\n💥 {name} landed on {other_name}'s spot! {other_name} goes back to 0!"
+
+    # Check for win
+    if self.positions[user_id] >= 30:
+        self.finished = True
+        return status + f"\n🏆 {name} wins the game!"
+
+    # Rule 1: Roll a 6 = extra turn
+    if roll == 6:
+        self.sixes_in_a_row[user_id] += 1
+        if self.sixes_in_a_row[user_id] >= 3:
+            # Rule 2: 3 sixes in a row = skip next turn
+            self.skip_turn.add(user_id)
+            status += f"\n🚫 You rolled three 6s in a row! You must skip your next turn."
+            self.sixes_in_a_row[user_id] = 0
+            self.turn = (self.turn + 1) % len(self.players)
+        else:
+            status += f"\n🎁 You rolled a 6! Take another turn."
+            return status  # Player rolls again
+    else:
+        self.sixes_in_a_row[user_id] = 0
+        self.turn = (self.turn + 1) % len(self.players)
+
+    next_player = self.players[self.turn][1]
+    return status + f"\n➡️ Now it's {next_player}'s turn."
 
 # === /ludo command ===
 @bot.message_handler(commands=['ludo'])
