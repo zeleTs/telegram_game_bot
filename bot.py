@@ -64,7 +64,9 @@ class Game:
 
         roll = random.randint(1, 6)
         self.positions[user_id] += roll
-        status = f"🎲 You rolled a {roll}! You're now at position {self.positions[user_id]}."
+
+        player_name = self.players[self.turn][1]  # Get current player's name
+        status = f"🎲 {player_name} rolled a {roll}! Now at position {self.positions[user_id]}."
 
         # Check if player won
         if self.positions[user_id] >= 30:
