@@ -83,20 +83,19 @@ class Game:
 
     def move_token(self, user_id, token, roll):
         name = [p[1] for p in self.players if p[0] == user_id][0]
+        
+        current_pos = self.tokens[user_id][token]
+        new_pos = current_pos + roll
 
-        # Rule: Cannot move past 30
-        if self.tokens[user_id][token] + roll > 30:
-            return f"⚠️ You can't move Token {token} — you'd exceed 30!"
-
-        # Rule: Roll of 1 moves back
-        if roll == 1:
-            self.tokens[user_id][token] = max(0, self.tokens[user_id][token] - 1)
-            status = f"🔙 {name} rolled a 1! Token {token} goes back to {self.tokens[user_id][token]}."
+        # Rule: if move exceeds 30, revert token to 29
+        if new_pos > 30:
+            self.tokens[user_id][token] = 29
+            status = f"🚫 {name} rolled too high! Token {token} reverts to position 29."
         else:
-            self.tokens[user_id][token] += roll
-            status = f"🚀 {name} moved Token {token} by {roll} to position {self.tokens[user_id][token]}."
+            self.tokens[user_id][token] = new_pos
+            status = f"🚀 {name} moved Token {token} by {roll} to position {new_pos}."
 
-        # Collision rule
+        # Collision check: if token lands on opponent's token, opponent's token returns to 0
         for other_id in self.tokens:
             if other_id == user_id:
                 continue
@@ -106,38 +105,15 @@ class Game:
                     self.tokens[other_id][tkn] = 0
                     status += f"\n💥 Landed on {other_name}'s Token {tkn}. Sent it back to 0!"
 
-        # Win condition
+        # Win condition: both tokens at or beyond 30
         if all(pos >= 30 for pos in self.tokens[user_id].values()):
             self.finished = True
             return status + f"\n🏆 {name} has finished both tokens and wins the game!"
 
-        # Extra turn for rolling 6
-        if roll == 6:
-            self.sixes_in_a_row[user_id] += 1
-            if self.sixes_in_a_row[user_id] >= 3:
-                self.skip_turn.add(user_id)
-                self.sixes_in_a_row[user_id] = 0
-                self.turn = (self.turn + 1) % len(self.players)
-                next_name = self.players[self.turn][1]
-                status += f"\n🚫 Three 6s in a row! You must skip your next turn."
-                status += f"\n➡️ Now it's {next_name}'s turn."
-            else:
-                status += f"\n🎁 You rolled a 6! You get another turn."
-                return status + self.get_scoreboard()
-        else:
-            self.sixes_in_a_row[user_id] = 0
-            self.turn = (self.turn + 1) % len(self.players)
-            next_name = self.players[self.turn][1]
-            status += f"\n➡️ Now it's {next_name}'s turn."
-
-        return status + self.get_scoreboard()
-
-    def get_scoreboard(self):
-        score = "\n\n📊 *Current Positions:*\n"
-        for uid, tokens in self.tokens.items():
-            name = next(p[1] for p in self.players if p[0] == uid)
-            score += f"{name}: A={tokens['A']} | B={tokens['B']}\n"
-        return score
+        # Move to next turn
+        self.turn = (self.turn + 1) % len(self.players)
+        next_name = self.players[self.turn][1]
+        return status + f"\n➡️ Now it's {next_name}'s turn."
 
 # === Telegram command handlers ===
 
@@ -165,7 +141,7 @@ def choose_token(message):
     token = 'A' if message.text == 'Token A' else 'B'
     roll = game.pending_move.pop(user_id)
     result = game.move_token(user_id, token, roll)
-    bot.send_message(chat_id, result, parse_mode="Markdown")
+    bot.send_message(chat_id, result)
 
 @bot.message_handler(commands=['join'])
 def join_game(message):
