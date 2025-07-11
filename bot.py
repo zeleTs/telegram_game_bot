@@ -3,6 +3,7 @@ import telebot              # For Telegram bot functions
 import os                   # To access environment variables (like BOT_TOKEN)
 import random               # For rolling dice and coin flip
 import time
+import ReplyKeyboardMarkup
 
 # === Load bot token securely from environment variable ===
 TOKEN = os.environ.get("BOT_TOKEN", "7224316622:AAEhVGroHMqp-7B1cFdYwQFLHXWFm4tC_M8") # "YOUR_BOT_TOKEN_HERE" is fallback for local testing
@@ -33,6 +34,14 @@ def handle_dice(message):
 games = {}  # key = chat_id, value = Game object
 
 # Define the Game class to manage player turns, rolls, and positions
+
+from telebot.types import ReplyKeyboardMarkup
+
+def token_choice_keyboard():
+    markup = ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    markup.add('Token A', 'Token B')
+    return markup
+
 class Game:
     def __init__(self):
         
@@ -42,6 +51,8 @@ class Game:
         self.started = False      # Indicates if the game has started
         self.sixes_in_a_row = {}   # Tracks how many 6s a player has rolled in a row
         self.skip_turn = set()     # Players who should skip their next turn
+        self.tokens = {}           # user_id → {'A': pos, 'B': pos}
+        self.pending_move = {}     # user_id → dice roll
         self.finished = False     # True if someone won
 
     def add_player(self, user_id, username):
@@ -49,6 +60,7 @@ class Game:
             return False, "🚫 Game already started."
         if user_id in [p[0] for p in self.players]:
             return False, "🧑 You're already in the game!"
+        self.tokens[user_id] = {'A': 0, 'B': 0}
         self.players.append((user_id, username))
         self.positions[user_id] = 0  # Start position
         self.sixes_in_a_row[user_id] = 0
@@ -60,6 +72,32 @@ class Game:
         self.started = True
         return True, f"🎲 Game started with {len(self.players)} players!\nIt's {self.players[0][1]}'s turn. Type /roll"
 
+    
+    def move_token(self, user_id, token, roll):
+        name = [p[1] for p in self.players if p[0] == user_id][0]
+        self.tokens[user_id][token] += roll
+        status = f"🚀 {name} moved Token {token} by {roll} to position {self.tokens[user_id][token]}."
+
+     # Check for collision rule
+    for other_id in self.tokens:
+        if other_id == user_id:
+            continue
+        for tkn, pos in self.tokens[other_id].items():
+            if pos == self.tokens[user_id][token]:
+                other_name = [p[1] for p in self.players if p[0] == other_id][0]
+                self.tokens[other_id][tkn] = 0
+                status += f"\n💥 Landed on {other_name}'s Token {tkn}. Sent it back to 0!"
+
+    # Check win
+    if all(pos >= 30 for pos in self.tokens[user_id].values()):
+        self.finished = True
+        return status + f"\n🏆 {name} has finished both tokens and wins the game!"
+
+    # Next turn
+    self.turn = (self.turn + 1) % len(self.players)
+    next_name = self.players[self.turn][1]
+    return status + f"\n➡️ Now it's {next_name}'s turn."
+    
     def roll_dice(self, user_id):
     if self.finished:
         return "🏁 Game is already over."
@@ -78,6 +116,10 @@ class Game:
     # Roll the dice
     roll = random.randint(1, 6)
     name = self.players[self.turn][1]
+
+    # 🧠 Store the dice roll and ask user to pick a token
+    self.pending_move[user_id] = roll
+    return f"🎲 {name} rolled a {roll}.\nWhich token do you want to move?", token_choice_keyboard()
 
     status = f"🎲 {name} rolled a {roll}!"
 
@@ -130,6 +172,20 @@ def create_game(message):
     else:
         games[chat_id] = Game()  # Create new game for this chat
         bot.reply_to(message, "🎮 New Ludo game created!\nPlayers, type /join to participate.")
+        
+# === /choose token ===
+@bot.message_handler(func=lambda msg: msg.text in ['Token A', 'Token B'])
+def choose_token(message):
+    user_id = message.from_user.id
+    if user_id not in current_games or user_id not in current_games[message.chat.id].pending_move:
+        bot.reply_to(message, "❌ You have no pending move.")
+        return
+
+    token = 'A' if message.text == 'Token A' else 'B'
+    game = current_games[message.chat.id]
+    roll = game.pending_move.pop(user_id)
+    result = game.move_token(user_id, token, roll)
+    bot.send_message(message.chat.id, result)
 
 # === /join command ===
 @bot.message_handler(commands=['join'])
